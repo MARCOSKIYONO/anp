@@ -7,7 +7,7 @@ import string
 import urllib.request
 import webbrowser
 
-from functions_utils import load_Total, tranform_df, load_list, get_subject_positions, download_file
+from functions_utils import load_total, tranform_df, load_list, get_subject_positions, download_file, create_html
 from utils import Months, Ufs, Sub_Detail_Pivot_tables, sub_expand_sales
 
 # CONFIGURATIONS
@@ -20,7 +20,7 @@ Always_Download = True # If need always download file before execute set True el
 Debug_Visible_Excel = True # If need see excel file while the program executes set True, else set False
 
 # LOCAL VARIABLES
-donwload_url = "http://www.anp.gov.br/arquivos/dados-estatisticos/vendas-combustiveis/vendas-combustiveis-m3.xls"
+Donwload_URL = "http://www.anp.gov.br/arquivos/dados-estatisticos/vendas-combustiveis/vendas-combustiveis-m3.xls"
 
 path = os.path.abspath(os.getcwd())
 
@@ -31,22 +31,21 @@ html_file_name = "anp_sales.html"
 Complete_File_Name = "{}\{}".format(path,filename)
 
 Module_General_Name = 'Modulo_General'
-Main_Sheet_Name = 'Plan1'
-Index_Sheet_name = 'Index'
+Sheet_Name_Main = 'Plan1'
+Sheet_Name_Index = 'Index'
 
-Prefix_Sheet_Sales_General_Name = 'Sales_General_'
-Prefix_Sheet_Sales_Diesel_Name = 'Sales_Diesel_'
+Sheet_Prefix_Name_Sales_General = 'Sales_General_'
+Sheet_Prefix_Name_Sales_Diesel = 'Sales_Diesel_'
 
-Index_Sub_Name = 'Get_Pivot_Details'
-Sales_General_Sub_Name = 'Get_Sales_General'
-Sales_Diesel_Sub_Name = 'Get_Sales_Diesel'
+Sub_Name_Index_ = 'Get_Pivot_Details'
+Sub_Name_Sales = 'Get_Sales_General'
 
-Pivot_table_Sales_General_Name = 'Tabela dinâmica1'
-Pivot_table_Sales_Diesel_Name = 'Tabela dinâmica9'
+Pivot_Table_Name_Sales_General = 'Tabela dinâmica1'
+Pivot_Table_Name_Sales_Diesel = 'Tabela dinâmica9'
 
 now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-Sheets_List = [Index_Sheet_name,Prefix_Sheet_Sales_General_Name,Prefix_Sheet_Sales_Diesel_Name]
+Sheets_List = [Sheet_Name_Index,Sheet_Prefix_Name_Sales_General,Sheet_Prefix_Name_Sales_Diesel]
 
 def increase_excel_macros():
     try:    
@@ -88,13 +87,13 @@ def increase_excel_macros():
         excelModule.name = Module_General_Name
 
         # Add Macro Get Details Pivot Table
-        excelModule.CodeModule.AddFromString(Sub_Detail_Pivot_tables.format(Index_Sub_Name,Index_Sheet_name) )    
+        excelModule.CodeModule.AddFromString(Sub_Detail_Pivot_tables.format(Sub_Name_Index_,Sheet_Name_Index) )    
 
         # Add Macro Expand General Sales and Diesel Sales
-        excelModule.CodeModule.AddFromString(sub_expand_sales.format(subname=Sales_General_Sub_Name,  mainsheet=Main_Sheet_Name) )
+        excelModule.CodeModule.AddFromString(sub_expand_sales.format(subname=Sub_Name_Sales,  mainsheet=Sheet_Name_Main) )
 
         # run the macro
-        excel.Application.Run(Index_Sub_Name)
+        excel.Application.Run(Sub_Name_Index_)
 
         # save the workbook and close
         excel.Workbooks(1).Close(SaveChanges=1)
@@ -104,7 +103,10 @@ def increase_excel_macros():
         del excel
 
     except Exception as e:
-        print(e)    
+        # save the workbook and close
+        excel.Workbooks(1).Close(SaveChanges=0)
+        excel.Application.Quit()    
+        print("Program increase_excel_macros error:{}".format(e))  
         
 
 def get_anp_file():
@@ -117,14 +119,24 @@ def get_anp_file():
         if os.path.exists(Complete_File_Name):
             print("File Exists !")
             if Always_Download:
-                download_file(donwload_url, Complete_File_Name)
+                download_file(Donwload_URL, Complete_File_Name)
         else:
             print("File Do Not Exists !")
-            download_file(donwload_url, Complete_File_Name)
+            download_file(Donwload_URL, Complete_File_Name)
     except Exception as e:
-        print(e)     
+        print("Program get_anp_file error:{}".format(e)) 
 
+def sum_df(df):
+    df = df['volume'].groupby(df['year_month'].str.slice(0,4)).sum().reset_index()
+    df['year_month'] = df['year_month'].astype(int)
+    return df
 
+def merge_dfs(df_rigth,df_left):
+        df_ = pd.merge(left=df_left, right=df_rigth, left_on='year', right_on='year_month', suffixes=('_Pivot', '_Source'))
+        df_['volume_Pivot_Minus_volume_Source'] = df_['volume_Source'] - df_['volume_Pivot'] 
+        df_.drop('year_month', axis=1, inplace=True)
+        return df_    
+        
 def main():
     try:   
         # get ANP File
@@ -134,7 +146,7 @@ def main():
         increase_excel_macros()
         
         # Loading Pivot Table Info
-        df = pd.read_excel(Complete_File_Name, sheet_name=Index_Sheet_name)
+        df = pd.read_excel(Complete_File_Name, sheet_name=Sheet_Name_Index)
         
         # Expand Source Data from Pivot Tables
         try:
@@ -149,24 +161,24 @@ def main():
             workbook = excel.Workbooks.Open(Filename=Complete_File_Name)
                     
             # Get Sales General sheets positions
-            inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_table_Sales_General_Name)
-            List_Sales_General = load_list(inicial_number, first_letter, last_number, last_letter , excel,Main_Sheet_Name, Prefix_Sheet_Sales_General_Name)    
-            df_total_sales_general = pd.DataFrame(load_Total(inicial_number, first_letter, last_number, last_letter , excel,Main_Sheet_Name, Prefix_Sheet_Sales_General_Name))
+            inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_Table_Name_Sales_General)
+            List_Sales_General = load_list(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General)    
+            df_total_sales_general = pd.DataFrame(load_total(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General))
 
             # Get Sales Diesel sheets positions
-            inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_table_Sales_Diesel_Name)
-            List_Sales_Diesel = load_list(inicial_number, first_letter, last_number, last_letter , excel,Main_Sheet_Name, Prefix_Sheet_Sales_Diesel_Name)
-            df_total_sales_diesel = pd.DataFrame(load_Total(inicial_number, first_letter, last_number, last_letter , excel,Main_Sheet_Name, Prefix_Sheet_Sales_General_Name))
+            inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_Table_Name_Sales_Diesel)
+            List_Sales_Diesel = load_list(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_Diesel)
+            df_total_sales_diesel = pd.DataFrame(load_total(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General))
 
             # Generate details Sales General infos
             for item in List_Sales_General:
                 print(item['sheet'], item['range'])
-                excel.Application.Run(Sales_General_Sub_Name,item['sheet'] , item['range'])
+                excel.Application.Run(Sub_Name_Sales,item['sheet'] , item['range'])
 
             # Generate details Sales Diesel infos
             for item in List_Sales_Diesel:
                 print(item['sheet'], item['range'])
-                excel.Application.Run(Sales_General_Sub_Name,item['sheet'] , item['range'])
+                excel.Application.Run(Sub_Name_Sales,item['sheet'] , item['range'])
                 
             # save the workbook and close
             excel.Workbooks(1).Close(SaveChanges=1)
@@ -174,8 +186,9 @@ def main():
 
         except Exception as e:
             excel.Workbooks(1).Close(SaveChanges=0)
-            excel.Application.Quit()        
-            print(e)       
+            excel.Application.Quit()   
+            print("Program main Exand Excel error:{}".format(e))
+            return False
         
         # Load Data frame Sales General infos
         df_Sales_General = pd.DataFrame()
@@ -199,40 +212,30 @@ def main():
         # Treatments Sales Diesel data
         df_Sales_Diesel = tranform_df(df_Sales_Diesel, ["COMBUSTÍVEL","ANO","SEGMENTO","ESTADO","UNIDADE"],['ANO', 'SEGMENTO','ESTADO','month']) 
 
+        print("Summarizing Sales General info ...")
         # Summarizing Sales General by Year
-        df_sum_sales_general = df_Sales_General['volume'].groupby(df_Sales_General['year_month'].str.slice(0,4)).sum().reset_index()
-        df_sum_sales_general['year_month'] = df_sum_sales_general['year_month'].astype(int)
+        df_sum_sales_general = sum_df(df_Sales_General)
         
+        print("Summarizing Sales Diesel info ...")
         # Summarizing Sales Diesel by Year
-        df_sum_sales_diesel = df_Sales_Diesel['volume'].groupby(df_Sales_Diesel['year_month'].str.slice(0,4)).sum().reset_index()
-        df_sum_sales_diesel['year_month'] = df_sum_sales_diesel['year_month'].astype(int)        
+        df_sum_sales_diesel = sum_df(df_Sales_Diesel)      
 
-        # Merge Sales General Source Data and Pivot Table and Calculate difference between source data and pivot table               
-        merged_sales_general = pd.merge(left=df_total_sales_general, right=df_sum_sales_general, left_on='year', right_on='year_month', suffixes=('_Pivot', '_Source'))
-        merged_sales_general['volume_Pivot_Minus_volume_Source'] = merged_sales_general['volume_Source'] - merged_sales_general['volume_Pivot'] 
-        merged_sales_general.drop('year_month', axis=1, inplace=True)
-        merged_sales_general
+        print("Merging Sales General info ...")    
+        # Merge Sales General Source Data and Pivot Table and Calculate difference between source data and pivot table 
+        merged_sales_general = merge_dfs(df_sum_sales_general,df_total_sales_general)
         
+        print("Merging Sales Diesel info ...")    
         # Merge Sales Diesel Source Data and Pivot Table  and Calculate difference between source data and pivot table
-        merged_sales_diesel = pd.merge(left=df_total_sales_diesel, right=df_sum_sales_diesel, left_on='year', right_on='year_month', suffixes=('_Pivot', '_Source'))
-        merged_sales_diesel['volume_Pivot_Minus_volume_Source'] = merged_sales_diesel['volume_Source'] - merged_sales_diesel['volume_Pivot'] 
-        merged_sales_diesel.drop('year_month', axis=1, inplace=True)
-        merged_sales_diesel        
+        merged_sales_diesel = merge_dfs(df_sum_sales_diesel,df_total_sales_diesel)      
 
         # Generate HTML result
-        with open(html_file_name, 'w') as _file:
-            _file.write('<center>' 
-                        +'<h1> ANP - Summary Report </h1><br><hr>'
-                        +'<h2> Sales of diesel by UF and type </h2>' + merged_sales_diesel.to_html(index=False,border=1,justify="center") + '<br><hr>'
-                        +'<h2> Sales of oil derivative fuels by UF and product </h2>' + merged_sales_general.to_html(index=False,border=1,justify="center") + '<be><hr>'
-                        +'<h1> The biggest difference founded in the volume of <font color="red">405.399 </font> in the report "Sales of oil derivative fuels by UF and product" in 2020 is due to the difference in Excel itself, between the source data and the pivot table, the data calculated in the program keeps the same difference, the others volumes the difference is in the 7th decimal place </h1><br><hr>'
-                        +'</center>')
+        create_html(html_file_name, merged_sales_diesel, merged_sales_general)
         
         # Showing Result HTML
         webbrowser.open(html_file_name)
         
     except Exception as e:
-        print(e)       
+        print("Program main error:{}".format(e))  
     
 if __name__ == ‘__main__’:
     main()
