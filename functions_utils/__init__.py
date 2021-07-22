@@ -48,7 +48,7 @@ def load_list(inicial_number, first_letter, last_number, last_letter,excel, shee
         print("Program load_list error:{}".format(e))    
 
 
-def tranform_df(df, id_vars, drop_columns):
+def tranform_df(df, id_vars, drop_columns, now ):
     try:
         df = df.drop_duplicates()
         
