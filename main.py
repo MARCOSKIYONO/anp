@@ -7,7 +7,7 @@ import string
 import urllib.request
 import webbrowser
 
-from functions_utils import load_total, tranform_df, load_list, get_subject_positions, download_file, create_html
+from functions_utils import load_total, transform_df, load_list, get_subject_positions, download_file, create_html
 from utils import Months, Ufs, Sub_Detail_Pivot_tables, sub_expand_sales
 
 # CONFIGURATIONS
@@ -46,7 +46,8 @@ Pivot_Table_Name_Sales_Diesel = 'Tabela dinâmica9'
 now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 Sheets_List = [Sheet_Name_Index,Sheet_Prefix_Name_Sales_General,Sheet_Prefix_Name_Sales_Diesel]
-
+       
+        
 def increase_excel_macros():
     try:    
         # open up an instance of Excel with the win32com driver
@@ -87,13 +88,13 @@ def increase_excel_macros():
         excelModule.name = Module_General_Name
 
         # Add Macro Get Details Pivot Table
-        excelModule.CodeModule.AddFromString(Sub_Detail_Pivot_tables.format(Sub_Name_Index_,Sheet_Name_Index) )    
+        excelModule.CodeModule.AddFromString(Sub_Detail_Pivot_tables.format(Sub_Name_Index,Sheet_Name_Index) )    
 
         # Add Macro Expand General Sales and Diesel Sales
         excelModule.CodeModule.AddFromString(sub_expand_sales.format(subname=Sub_Name_Sales,  mainsheet=Sheet_Name_Main) )
 
         # run the macro
-        excel.Application.Run(Sub_Name_Index_)
+        excel.Application.Run(Sub_Name_Index)
 
         # save the workbook and close
         excel.Workbooks(1).Close(SaveChanges=1)
@@ -106,7 +107,7 @@ def increase_excel_macros():
         # save the workbook and close
         excel.Workbooks(1).Close(SaveChanges=0)
         excel.Application.Quit()    
-        print("Program increase_excel_macros error:{}".format(e))  
+        print("Program increase_excel_macros error:{}".format(e))     
         
 
 def get_anp_file():
@@ -126,116 +127,139 @@ def get_anp_file():
     except Exception as e:
         print("Program get_anp_file error:{}".format(e)) 
 
+
 def sum_df(df):
-    df = df['volume'].groupby(df['year_month'].str.slice(0,4)).sum().reset_index()
-    df['year_month'] = df['year_month'].astype(int)
-    return df
+    try:
+        df = df['volume'].groupby(df['year_month'].str.slice(0,4)).sum().reset_index()
+        df['year_month'] = df['year_month'].astype(int)
+        return df
+    except Exception as e:
+        print("Program sum_df error:{}".format(e))         
+
 
 def merge_dfs(df_rigth,df_left):
+    try:
         df_ = pd.merge(left=df_left, right=df_rigth, left_on='year', right_on='year_month', suffixes=('_Pivot', '_Source'))
         df_['volume_Pivot_Minus_volume_Source'] = df_['volume_Source'] - df_['volume_Pivot'] 
         df_.drop('year_month', axis=1, inplace=True)
         return df_    
+    except Exception as e:
+        print("Program sum_df error:{}".format(e))        
+
+
+def load_df(lista_sheets):
+    try:
+        if lista_sheets:
+            df_ = pd.DataFrame()
+            for item in lista_sheets:
+                df = pd.read_excel(Complete_File_Name,
+                               sheet_name = item['sheet'])
+                df_ = pd.concat([df_,df])
+            return df_
+    except Exception as e:
+        print("Program load_df error:{}".format(e))         
+
+
+def expand_excel_extract_data_sources(Complete_File_Name,sheet_name):
+    try:
         
+        # open up an instance of Excel with the win32com driver
+        excel = win32com.client.Dispatch("Excel.Application")
+
+        # do the operation in background without actually opening Excel
+        excel.Visible = Debug_Visible_Excel
+
+        # open the excel workbook from the specified file
+        workbook = excel.Workbooks.Open(Filename=Complete_File_Name)
+        
+        # loading Pivot Table Info
+        df = pd.read_excel(Complete_File_Name, sheet_name)
+        
+        # extracting Total Sales General       
+        inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_Table_Name_Sales_General)
+        List_Sales_General = load_list(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General)    
+        df_total_sales_general = pd.DataFrame(load_total(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General))
+
+        # extracting Total Sales Diesel   
+        inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_Table_Name_Sales_Diesel)
+        List_Sales_Diesel = load_list(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_Diesel)
+        df_total_sales_diesel = pd.DataFrame(load_total(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General))
+            
+        # expanding excel Sales General     
+        for item in List_Sales_General:
+            print("Expanding ", item['sheet'])
+            excel.Application.Run(Sub_Name_Sales,item['sheet'] , item['range'])
+
+        # expanding excel Sales Diesel              
+        for item in List_Sales_Diesel:
+            print("Expanding ", item['sheet'])
+            excel.Application.Run(Sub_Name_Sales,item['sheet'] , item['range'])
+
+        # save the workbook and close
+        excel.Workbooks(1).Close(SaveChanges=1)
+        excel.Application.Quit()
+        
+        # extracting Sales General info
+        df_Sales_General = load_df(List_Sales_General)
+
+        # extracting Sales Diesel info 
+        df_Sales_Diesel = load_df(List_Sales_Diesel)
+
+        return df_total_sales_general, df_Sales_General, df_total_sales_diesel, df_Sales_Diesel
+    
+    except Exception as e:
+        excel.Workbooks(1).Close(SaveChanges=0)
+        excel.Application.Quit()   
+        df_total_sales_general = None 
+        List_Sales_General = None 
+        df_total_sales_diesel = None 
+        df_Sales_Diesel = None 
+        print("Program main Exand Excel error:{}".format(e))        
+
+
 def main():
     try:   
-        # get ANP File
+        
+        # downloading ANS File
         get_anp_file()
     
-        # Increase Module and Macros Excel
+        # adding Module and Macros Excel
         increase_excel_macros()
+
+        # expand Source Data from Pivot Tables and extract data from sheets
+        df_total_sales_general, df_Sales_General, df_total_sales_diesel, df_Sales_Diesel = expand_excel_extract_data_sources(Complete_File_Name, Sheet_Name_Index)
         
-        # Loading Pivot Table Info
-        df = pd.read_excel(Complete_File_Name, sheet_name=Sheet_Name_Index)
-        
-        # Expand Source Data from Pivot Tables
-        try:
-            # Open Excel
-            # open up an instance of Excel with the win32com driver
-            excel = win32com.client.Dispatch("Excel.Application")
-
-            # do the operation in background without actually opening Excel
-            excel.Visible = Debug_Visible_Excel
-
-            # open the excel workbook from the specified file
-            workbook = excel.Workbooks.Open(Filename=Complete_File_Name)
-                    
-            # Get Sales General sheets positions
-            inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_Table_Name_Sales_General)
-            List_Sales_General = load_list(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General)    
-            df_total_sales_general = pd.DataFrame(load_total(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General))
-
-            # Get Sales Diesel sheets positions
-            inicial_number, first_letter, last_number, last_letter = get_subject_positions(df,Pivot_Table_Name_Sales_Diesel)
-            List_Sales_Diesel = load_list(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_Diesel)
-            df_total_sales_diesel = pd.DataFrame(load_total(inicial_number, first_letter, last_number, last_letter , excel,Sheet_Name_Main, Sheet_Prefix_Name_Sales_General))
-
-            # Generate details Sales General infos
-            for item in List_Sales_General:
-                print(item['sheet'], item['range'])
-                excel.Application.Run(Sub_Name_Sales,item['sheet'] , item['range'])
-
-            # Generate details Sales Diesel infos
-            for item in List_Sales_Diesel:
-                print(item['sheet'], item['range'])
-                excel.Application.Run(Sub_Name_Sales,item['sheet'] , item['range'])
-                
-            # save the workbook and close
-            excel.Workbooks(1).Close(SaveChanges=1)
-            excel.Application.Quit()
-
-        except Exception as e:
-            excel.Workbooks(1).Close(SaveChanges=0)
-            excel.Application.Quit()   
-            print("Program main Exand Excel error:{}".format(e))
+        if df_total_sales_general.empty or df_Sales_General.empty or df_total_sales_diesel.empty or df_Sales_Diesel.empty:        
+            raise ValueError('Program main error: Extracting')
             return False
-        
-        # Load Data frame Sales General infos
-        df_Sales_General = pd.DataFrame()
-        for item in List_Sales_General:
-            print(Complete_File_Name, item['sheet'], item['range'])
-            df = pd.read_excel(Complete_File_Name,
-                           sheet_name = item['sheet'])
-            df_Sales_General = pd.concat([df_Sales_General,df])
 
-        # Load Data frame Sales Diesel infos
-        df_Sales_Diesel = pd.DataFrame()
-        for item in List_Sales_Diesel:
-            print(Complete_File_Name, item['sheet'], item['range'])
-            df = pd.read_excel(Complete_File_Name,
-                           sheet_name = item['sheet'])
-            df_Sales_Diesel = pd.concat([df_Sales_Diesel,df])
-            
-        # Treatments Sales General data
-        df_Sales_General = tranform_df(df_Sales_General, ["COMBUSTÍVEL","ANO","REGIÃO","ESTADO","UNIDADE"], ['ANO', 'REGIÃO','ESTADO','month'])
+        # transformation Sales General info 
+        df_Sales_General = transform_df(df_Sales_General, ["COMBUSTÍVEL","ANO","REGIÃO","ESTADO","UNIDADE"], ['ANO', 'REGIÃO','ESTADO','month'], now )
 
-        # Treatments Sales Diesel data
-        df_Sales_Diesel = tranform_df(df_Sales_Diesel, ["COMBUSTÍVEL","ANO","SEGMENTO","ESTADO","UNIDADE"],['ANO', 'SEGMENTO','ESTADO','month']) 
+        # transformation Sales Diesel info  
+        df_Sales_Diesel = transform_df(df_Sales_Diesel, ["COMBUSTÍVEL","ANO","SEGMENTO","ESTADO","UNIDADE"],['ANO', 'SEGMENTO','ESTADO','month'], now ) 
 
-        print("Summarizing Sales General info ...")
-        # Summarizing Sales General by Year
+        # summarizing Sales General info 
         df_sum_sales_general = sum_df(df_Sales_General)
         
-        print("Summarizing Sales Diesel info ...")
-        # Summarizing Sales Diesel by Year
+        # summarizing Sales Diesel info
         df_sum_sales_diesel = sum_df(df_Sales_Diesel)      
 
-        print("Merging Sales General info ...")    
-        # Merge Sales General Source Data and Pivot Table and Calculate difference between source data and pivot table 
+        # merging Sales General info Calculate difference between source data and pivot table   
         merged_sales_general = merge_dfs(df_sum_sales_general,df_total_sales_general)
         
-        print("Merging Sales Diesel info ...")    
-        # Merge Sales Diesel Source Data and Pivot Table  and Calculate difference between source data and pivot table
-        merged_sales_diesel = merge_dfs(df_sum_sales_diesel,df_total_sales_diesel)      
-
-        # Generate HTML result
+        # merging Sales Diesel info Calculate difference between source data and pivot table   
+        merged_sales_diesel = merge_dfs(df_sum_sales_diesel,df_total_sales_diesel)
+  
+        # generating HTML info 
         create_html(html_file_name, merged_sales_diesel, merged_sales_general)
         
-        # Showing Result HTML
+        # browsing Compare result  
         webbrowser.open(html_file_name)
-        
+
     except Exception as e:
         print("Program main error:{}".format(e))  
-    
+        
+        
 if __name__ == ‘__main__’:
     main()
